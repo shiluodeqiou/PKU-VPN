@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net6.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>PKUVpnManager</RootNamespace>
+    <AssemblyName>PKUVpnManager</AssemblyName>
+    <ApplicationIcon>app-icon-v2.ico</ApplicationIcon>
+    <Platforms>AnyCPU</Platforms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="app-icon-v2.ico" />
+    <None Include="..\pku-clash.ps1" Link="pku-clash.ps1" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\watch-admin.cmd" Link="watch-admin.cmd" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\restore-normal-network.ps1" Link="restore-normal-network.ps1" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\restore-normal-network.cmd" Link="restore-normal-network.cmd" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

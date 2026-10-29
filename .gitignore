@@ -1,0 +1,32 @@
+# Build output
+bin/
+obj/
+dist/
+.vs/
+TestResults/
+
+# Runtime state and logs
+pku-clash-routes.json
+*.log
+*.dmp
+*.etl
+
+# Local configuration and editor files
+.env
+.env.*
+!.env.example
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# OS/editor metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+
+# Legacy icon assets superseded by app-icon-v2.*
+PKU VPN Manager/app.ico
+PKU VPN Manager/app-preview.png

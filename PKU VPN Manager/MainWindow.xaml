@@ -1,0 +1,148 @@
+<Window x:Class="PKUVpnManager.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="PKU VPN 管理器"
+        Icon="app-icon-v2.ico"
+        Width="1020"
+        Height="720"
+        MinWidth="900"
+        MinHeight="620"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource SurfaceWindowBrush}"
+        TextOptions.TextFormattingMode="Ideal"
+        TextOptions.TextRenderingMode="ClearType"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True">
+
+  <Grid Margin="10">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="5" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="5" />
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+
+    <Border Grid.Row="0" Style="{StaticResource CardStyle}">
+      <Grid>
+        <StackPanel>
+          <TextBlock Text="PKU VPN 管理器" FontSize="22" FontWeight="SemiBold"
+                     Foreground="{StaticResource TextHeadingBrush}" />
+          <TextBlock Text="Clash Verge 与 Pulse Secure 共存控制台"
+                     Style="{StaticResource InfoTextStyle}" Margin="0,4,0,0" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+          <Button Content="一键启动" Style="{StaticResource PrimaryButtonStyle}" Width="110" Height="36"
+                  Click="StartAll_Click" />
+          <Button Content="恢复普通 Edge" Style="{StaticResource SecondaryButtonStyle}" Width="125" Height="36"
+                  Margin="8,0,0,0" Click="RestoreEdge_Click" />
+          <Button Content="关闭 Edge" Style="{StaticResource DangerButtonStyle}" Width="100" Height="36"
+                  Margin="8,0,0,0" Click="CloseEdge_Click" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <Grid Grid.Row="2">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="5" />
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="5" />
+        <ColumnDefinition Width="*" />
+      </Grid.ColumnDefinitions>
+
+      <Border Grid.Column="0" Style="{StaticResource CardStyle}">
+        <StackPanel>
+          <TextBlock Text="🛡️ Pulse Secure" Style="{StaticResource SectionHeaderStyle}" />
+          <TextBlock x:Name="PulseStatusText" Text="检查中..." Style="{StaticResource AccentTextStyle}" Margin="0,12,0,0" />
+          <TextBlock x:Name="PulseDetailText" Text="" Style="{StaticResource CaptionTextStyle}" Margin="0,5,0,0" TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
+
+      <Border Grid.Column="2" Style="{StaticResource CardStyle}">
+        <StackPanel>
+          <TextBlock Text="⚡ Clash Verge" Style="{StaticResource SectionHeaderStyle}" />
+          <TextBlock x:Name="ClashStatusText" Text="检查中..." Style="{StaticResource AccentTextStyle}" Margin="0,12,0,0" />
+          <TextBlock x:Name="ClashDetailText" Text="" Style="{StaticResource CaptionTextStyle}" Margin="0,5,0,0" TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
+
+      <Border Grid.Column="4" Style="{StaticResource CardStyle}">
+        <StackPanel>
+          <TextBlock Text="🌐 Edge" Style="{StaticResource SectionHeaderStyle}" />
+          <TextBlock x:Name="EdgeStatusText" Text="检查中..." Style="{StaticResource AccentTextStyle}" Margin="0,12,0,0" />
+          <TextBlock x:Name="EdgeDetailText" Text="" Style="{StaticResource CaptionTextStyle}" Margin="0,5,0,0" TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
+    </Grid>
+
+    <Grid Grid.Row="4">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="2*" MinWidth="430" />
+        <ColumnDefinition Width="5" />
+        <ColumnDefinition Width="*" MinWidth="300" />
+      </Grid.ColumnDefinitions>
+
+      <Border Grid.Column="0" Style="{StaticResource CardStyle}" Padding="0">
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+          </Grid.RowDefinitions>
+          <Border Grid.Row="0" Style="{StaticResource CardHeaderBorderStyle}">
+            <Grid>
+              <TextBlock Text="📋 运行日志" Style="{StaticResource SectionHeaderStyle}" />
+              <Button Content="刷新状态" Style="{StaticResource SecondaryButtonStyle}" Width="85" Height="30"
+                      HorizontalAlignment="Right" Click="Refresh_Click" />
+            </Grid>
+          </Border>
+          <TextBox Grid.Row="1" x:Name="LogTextBox" IsReadOnly="True" BorderThickness="0"
+                   Background="{StaticResource SurfaceCardBrush}" Padding="12" FontFamily="Consolas"
+                   FontSize="12" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" />
+          <Border Grid.Row="2" Style="{StaticResource CardFooterBorderStyle}">
+            <TextBlock x:Name="LastCheckText" Text="等待检查" Style="{StaticResource CaptionTextStyle}" />
+          </Border>
+        </Grid>
+      </Border>
+
+      <Border Grid.Column="2" Style="{StaticResource CardStyle}">
+        <StackPanel>
+          <TextBlock Text="⚙️ 软件设置" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,12" />
+          <CheckBox x:Name="StartWithWindowsCheckBox" Content="开机自启动软件"
+                    Margin="0,0,0,10" Checked="StartWithWindows_Changed" Unchecked="StartWithWindows_Changed" />
+          <CheckBox x:Name="AutoStartCoexistCheckBox" Content="开机自动启动共存模式"
+                    Margin="0,0,0,14" Checked="AutoStartCoexist_Changed" Unchecked="AutoStartCoexist_Changed" />
+          <Border Style="{StaticResource PanelStyle}">
+            <StackPanel>
+              <TextBlock Text="使用顺序" Style="{StaticResource LabelStyle}" />
+              <TextBlock Text="1. 点击一键启动" Style="{StaticResource CaptionTextStyle}" Margin="0,8,0,0" />
+              <TextBlock Text="2. 在 Pulse 输入二次验证" Style="{StaticResource CaptionTextStyle}" Margin="0,4,0,0" />
+              <TextBlock Text="3. Edge 会自动使用 Clash" Style="{StaticResource CaptionTextStyle}" Margin="0,4,0,0" />
+            </StackPanel>
+          </Border>
+          <Border Style="{StaticResource PanelStyle}" Margin="0,12,0,0">
+            <StackPanel>
+              <TextBlock Text="当前模式" Style="{StaticResource LabelStyle}" />
+              <TextBlock x:Name="ModeText" Text="检查中..." Style="{StaticResource AccentTextStyle}" Margin="0,8,0,0" />
+              <TextBlock Text="恢复普通 Edge 会关闭代理、删除共存路由，并重置浏览器代理策略。"
+                         Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" Margin="0,5,0,0" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </Border>
+    </Grid>
+
+    <Border Grid.Row="5" Background="{StaticResource SurfacePanelBrush}"
+            BorderBrush="{StaticResource BorderDividerBrush}" BorderThickness="0,1,0,0"
+            Padding="15,12" Margin="-15,15,-15,-15">
+      <Grid>
+        <TextBlock Text="💡 需要 Pulse 二次验证时，请在客户端窗口中手动输入。"
+                   Style="{StaticResource CaptionTextStyle}" />
+        <TextBlock x:Name="FooterStatusText" Text="" HorizontalAlignment="Right"
+                   Style="{StaticResource CaptionTextStyle}" />
+      </Grid>
+    </Border>
+  </Grid>
+</Window>
