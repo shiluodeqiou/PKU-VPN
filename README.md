@@ -6,6 +6,12 @@
 
 本仓库只包含源码、脚本、配置模板和图标。运行日志、路由缓存、构建产物、发布包、本机订阅和个人路径不会提交到 Git。
 
+## 下载
+
+前往 [GitHub Releases](https://github.com/shiluodeqiou/PKU-VPN/releases/latest) 下载 Windows x64 单文件版本。发行版是自包含程序，不需要另行安装 .NET Runtime。
+
+当前首个正式版本为 `v1.0.0`。
+
 ## 快速开始
 
 环境要求：
@@ -13,7 +19,7 @@
 - Windows 10/11 x64；
 - Clash Verge Rev；
 - Pulse Secure 或 Ivanti Secure Access Client；
-- 可选的桌面管理器需要 .NET 6 Desktop Runtime；自行发布时只需 .NET SDK 6。
+- 下载发行版无需额外运行时；从源码构建需要 .NET SDK 6。
 
 1. 按本文第一节配置 Pulse Secure，按第二节把 [`clash/pku-direct.js`](./clash/pku-direct.js) 的内容放进 Clash Verge 的全局扩展脚本。
 2. 双击 `start-pku-clash.cmd`。它会启动 Clash、请求管理员权限运行路由监视器，并启动 Pulse/Ivanti。
