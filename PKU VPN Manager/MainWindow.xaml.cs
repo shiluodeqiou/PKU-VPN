@@ -1,4 +1,5 @@
 using Microsoft.Win32;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
@@ -11,7 +12,7 @@ public partial class MainWindow : Window
 {
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string RunName = "PKUVpnManager";
-    private const string RunCoexistName = "PKUVpnManagerCoexist";
+    private const string LegacyRunCoexistName = "PKUVpnManagerCoexist";
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(5) };
     private readonly string _root = AppContext.BaseDirectory;
     private bool _loading;
@@ -36,12 +37,26 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        var runState = ReadRunState();
         _loading = true;
-        StartWithWindowsCheckBox.IsChecked = HasRunValue(RunName);
-        AutoStartCoexistCheckBox.IsChecked = HasRunValue(RunCoexistName);
+        StartWithWindowsCheckBox.IsChecked = runState.Enabled;
+        AutoStartCoexistCheckBox.IsChecked = runState.Coexist;
         _loading = false;
 
         AppendLog("管理器启动");
+        if (runState.NeedsMigration)
+        {
+            try
+            {
+                SetRunValue(runState.Enabled, runState.Coexist);
+                AppendLog("已把旧的双开机启动项迁移为单一启动项");
+            }
+            catch (Exception ex)
+            {
+                AppendLog("迁移开机启动项失败：" + ex.Message);
+            }
+        }
+
         _timer.Tick += async (_, _) => await RefreshStatusAsync();
         Loaded += async (_, _) =>
         {
@@ -162,12 +177,30 @@ public partial class MainWindow : Window
 
     private void CloseEdge_Click(object sender, RoutedEventArgs e)
     {
+        CloseEdgeProcesses();
+        _ = RefreshStatusAsync();
+    }
+
+    private bool CloseEdgeProcesses()
+    {
+        var closed = true;
         foreach (var process in Process.GetProcessesByName("msedge"))
         {
-            try { process.Kill(entireProcessTree: true); } catch { }
+            try { process.Kill(entireProcessTree: true); }
+            catch (Exception ex)
+            {
+                closed = false;
+                AppendLog("关闭 Edge 失败：" + ex.Message);
+            }
         }
-        AppendLog("已关闭 Edge");
-        _ = RefreshStatusAsync();
+
+        foreach (var process in Process.GetProcessesByName("msedge"))
+        {
+            if (!process.WaitForExit(1500)) closed = false;
+        }
+
+        AppendLog(closed ? "已关闭 Edge" : "仍有个别 Edge 进程未关闭");
+        return closed;
     }
 
     private async void RestoreEdge_Click(object sender, RoutedEventArgs e)
@@ -176,9 +209,14 @@ public partial class MainWindow : Window
             "恢复普通 Edge", MessageBoxButton.YesNo, MessageBoxImage.Question);
         if (result != MessageBoxResult.Yes) return;
 
-        CloseEdge_Click(sender, e);
         var script = Path.Combine(_root, "restore-normal-network.ps1");
-        if (File.Exists(script))
+        if (!File.Exists(script))
+        {
+            MessageBox.Show($"恢复脚本不存在：{script}", "无法恢复", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        try
         {
             var psi = new ProcessStartInfo("powershell.exe",
                 $"-NoProfile -ExecutionPolicy Bypass -File \"{script}\" -NoPause")
@@ -187,12 +225,48 @@ public partial class MainWindow : Window
                 Verb = "runas",
                 WorkingDirectory = _root
             };
-            Process.Start(psi);
-            await Task.Delay(2500);
+
+            using var process = Process.Start(psi)
+                ?? throw new InvalidOperationException("无法启动恢复脚本。");
+            AppendLog("正在等待恢复脚本完成...");
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode != 0)
+            {
+                AppendLog($"恢复脚本失败，退出码 {process.ExitCode}");
+                MessageBox.Show(
+                    "恢复脚本未成功完成。Edge 将保持当前状态，请查看恢复窗口中的错误信息。",
+                    "恢复失败",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+                return;
+            }
+
+            if (!CloseEdgeProcesses())
+            {
+                MessageBox.Show(
+                    "网络已恢复，但部分 Edge 后台进程未能关闭。请从任务管理器结束 Edge 后重新打开。",
+                    "Edge 未完全关闭",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+            if (File.Exists(EdgeExe))
+                Process.Start(new ProcessStartInfo(EdgeExe) { UseShellExecute = true });
+            AppendLog("已恢复普通 Edge；如需共存请再次点击一键启动");
         }
-        if (File.Exists(EdgeExe)) Process.Start(new ProcessStartInfo(EdgeExe) { UseShellExecute = true });
-        AppendLog("已恢复普通 Edge；如需共存请再次点击一键启动");
-        await RefreshStatusAsync();
+        catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
+        {
+            AppendLog("已取消管理员授权，未修改网络设置");
+        }
+        catch (Exception ex)
+        {
+            AppendLog("恢复普通 Edge 失败：" + ex.Message);
+            MessageBox.Show(ex.Message, "恢复失败", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            await RefreshStatusAsync();
+        }
     }
 
     private void Refresh_Click(object sender, RoutedEventArgs e) => _ = RefreshStatusAsync();
@@ -218,27 +292,68 @@ public partial class MainWindow : Window
 
     private void StartWithWindows_Changed(object sender, RoutedEventArgs e)
     {
-        if (!_loading) SetRunValue(RunName, StartWithWindowsCheckBox.IsChecked == true, false);
+        PersistStartupSettings();
     }
 
     private void AutoStartCoexist_Changed(object sender, RoutedEventArgs e)
     {
-        if (!_loading) SetRunValue(RunCoexistName, AutoStartCoexistCheckBox.IsChecked == true, true);
+        PersistStartupSettings();
     }
 
-    private static bool HasRunValue(string name)
+    private void PersistStartupSettings()
+    {
+        if (_loading) return;
+
+        if (AutoStartCoexistCheckBox.IsChecked == true)
+            StartWithWindowsCheckBox.IsChecked = true;
+
+        var enabled = StartWithWindowsCheckBox.IsChecked == true;
+        var coexist = enabled && AutoStartCoexistCheckBox.IsChecked == true;
+        _loading = true;
+        if (!enabled) AutoStartCoexistCheckBox.IsChecked = false;
+        _loading = false;
+
+        try
+        {
+            SetRunValue(enabled, coexist);
+        }
+        catch (Exception ex)
+        {
+            AppendLog("保存开机启动设置失败：" + ex.Message);
+            MessageBox.Show(ex.Message, "保存设置失败", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private static (bool Enabled, bool Coexist, bool NeedsMigration) ReadRunState()
     {
         using var key = Registry.CurrentUser.OpenSubKey(RunKey);
-        return key?.GetValue(name) is not null;
+        var legacyCoexist = key?.GetValue(LegacyRunCoexistName) is not null;
+        if (key?.GetValue(RunName) is string configured)
+        {
+            var coexist = legacyCoexist ||
+                configured.Contains("--startup-coexist", StringComparison.OrdinalIgnoreCase);
+            return (true, coexist, legacyCoexist);
+        }
+
+        if (legacyCoexist)
+            return (true, true, true);
+
+        return (false, false, false);
     }
 
-    private static void SetRunValue(string name, bool enabled, bool coexist)
+    private static void SetRunValue(bool enabled, bool coexist)
     {
         using var key = Registry.CurrentUser.CreateSubKey(RunKey);
-        if (!enabled) { key?.DeleteValue(name, false); return; }
+        key?.DeleteValue(LegacyRunCoexistName, false);
+        if (!enabled)
+        {
+            key?.DeleteValue(RunName, false);
+            return;
+        }
+
         var exe = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "PKUVpnManager.exe");
-        var args = coexist ? " --startup-coexist" : "";
-        key?.SetValue(name, $"\"{exe}\"{args}");
+        var args = coexist ? " --startup-coexist" : string.Empty;
+        key?.SetValue(RunName, $"\"{exe}\"{args}");
     }
 
     private async Task<string> RunPowerShellAsync(string command)

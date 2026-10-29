@@ -60,7 +60,7 @@ dotnet publish '.\PKU VPN Manager\PKUVpnManager.csproj' -c Release -r win-x64 `
 
 - 一键启动 Clash Verge、Pulse Secure 和共存监视器；
 - Pulse、Clash、Edge 实时状态卡片；
-- 开机自启动软件和开机自动启动共存模式；
+- 开机自启动与自动进入共存模式共用同一个启动项，并阻止管理器重复运行；
 - 关闭 Edge、恢复普通 Edge；
 - 通过 UAC 调用已有共存与恢复脚本，避免把网络逻辑复制成两份。
 
@@ -257,7 +257,7 @@ pwsh -File "$ProjectRoot\pku-clash.ps1" apply
 Start-Process pwsh -Verb RunAs -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',"$ProjectRoot\pku-clash.ps1",'-Action','watch'
 ```
 
-脚本会在 Pulse 虚拟网卡尚未启动时解析并添加路由；检测到 Pulse 网卡已经启动后，只检查代理，不再重写路由，避免触发 Pulse 的网络变化检测。日志在 `pku-clash.log`。
+脚本每 30 秒重新解析北大 VPN、Clash 机场节点和 DNS 地址，并补齐新增的 `/32` 路由；Pulse 已连接时也会执行这项检查。日志在 `pku-clash.log`。
 
 ### 3. 回滚
 
@@ -406,7 +406,6 @@ Restart-NetAdapter -Name '以太网'
 - 路由行为与 Pulse/Ivanti、Clash Verge、网卡名称及驱动版本有关，升级网络客户端后应重新运行 `status`。
 - 当前桌面管理器以 .NET 6 为目标框架。.NET 6 已结束官方支持，建议后续升级到当前 LTS，并用新版 SDK 构建。
 - 自带脚本没有自动化测试；Windows 路由、代理注册表和 UAC 行为需要在实际环境验证。
-- “恢复普通 Edge”依赖系统恢复脚本在固定等待时间内完成。若 UAC 被取消，管理器仍会尝试启动 Edge，因此需要手动检查网络状态。
 - 本仓库当前未声明开源许可证；公开或允许他人再分发前应先补充合适的 `LICENSE`。
 
 ## 八、本目录文件

@@ -31,7 +31,7 @@ param(
     [ValidateSet('status', 'apply', 'watch', 'revert', 'fixproxy')]
     [string]$Action = 'status',
 
-    [int]$IntervalSeconds = 60,
+    [int]$IntervalSeconds = 30,
 
     [string]$StatePath,
 
@@ -724,14 +724,22 @@ function Invoke-ApplyRoutes {
 function Invoke-RevertRoutes {
     if (-not (Test-Admin)) {
         Write-Log 'This action needs an elevated PowerShell (Run as Administrator).' 'ERROR'
-        return
+        return $false
     }
     if (-not (Test-Path $StatePath)) {
         Write-Log 'No saved route state found; nothing to revert.' 'WARN'
-        return
+        return $true
     }
 
-    $entries = @(Get-Content -LiteralPath $StatePath -Raw -Encoding UTF8 | ConvertFrom-Json)
+    try {
+        $entries = @(Get-Content -LiteralPath $StatePath -Raw -Encoding UTF8 | ConvertFrom-Json)
+    }
+    catch {
+        Write-Log ("failed to read saved route state: {0}" -f $_.Exception.Message) 'ERROR'
+        return $false
+    }
+
+    $failed = $false
     foreach ($entry in $entries) {
         $existing = Get-NetRoute -AddressFamily IPv4 -DestinationPrefix $entry.Prefix -ErrorAction SilentlyContinue |
             Where-Object { $_.InterfaceIndex -eq $entry.InterfaceIndex -and $_.NextHop -eq $entry.NextHop }
@@ -741,12 +749,22 @@ function Invoke-RevertRoutes {
                 Write-Log ("removed {0}" -f $entry.Prefix)
             }
             catch {
-                Write-Log ("failed to remove {0}: {1}" -f $entry.Prefix, $_.Exception.Message) 'WARN'
+                Write-Log ("failed to remove {0}: {1}" -f $entry.Prefix, $_.Exception.Message) 'ERROR'
+                $failed = $true
             }
         }
     }
-    Remove-Item -LiteralPath $StatePath -Force -ErrorAction SilentlyContinue
-    Write-Log 'revert done.'
+    if (-not $failed) {
+        try {
+            Remove-Item -LiteralPath $StatePath -Force -ErrorAction Stop
+        }
+        catch {
+            Write-Log ("failed to remove route state file: {0}" -f $_.Exception.Message) 'ERROR'
+            $failed = $true
+        }
+    }
+    Write-Log $(if ($failed) { 'revert finished with errors.' } else { 'revert done.' }) $(if ($failed) { 'ERROR' } else { 'INFO' })
+    return (-not $failed)
 }
 
 # ---------------------------------------------------------------------------
@@ -755,8 +773,19 @@ function Invoke-RevertRoutes {
 
 switch ($Action) {
     'status' { Invoke-Status }
-    'apply' { [void](Invoke-ApplyRoutes -RefreshTargets); Invoke-FixProxy }
-    'revert' { Invoke-RevertRoutes }
+    'apply' {
+        if (Invoke-ApplyRoutes -RefreshTargets) {
+            Invoke-FixProxy
+        }
+        else {
+            exit 1
+        }
+    }
+    'revert' {
+        if (-not (Invoke-RevertRoutes)) {
+            exit 1
+        }
+    }
     'fixproxy' { Invoke-FixProxy }
     'watch' {
         if (-not (Test-Admin)) {
@@ -779,11 +808,18 @@ switch ($Action) {
         while ($true) {
             $round++
             Invoke-FixProxy
-            if (Test-PulseConnected) {
-                Write-Log 'Pulse adapter is up; skipping route rewrite to keep the VPN session stable'
+            $pulseConnected = Test-PulseConnected
+            $routesOk = Invoke-ApplyRoutes -RefreshTargets
+            if ($pulseConnected) {
+                if ($routesOk) {
+                    Write-Log 'Pulse adapter is up; refreshed endpoint DNS and verified all bypass routes'
+                }
+                else {
+                    Write-Log 'Pulse adapter is up, but one or more refreshed endpoint routes could not be applied' 'WARN'
+                }
             }
-            else {
-                [void](Invoke-ApplyRoutes -RefreshTargets)
+            elseif (-not $routesOk) {
+                Write-Log 'route preparation failed while Pulse is disconnected' 'WARN'
             }
             Write-Log ("round {0} done, sleeping {1}s" -f $round, $IntervalSeconds)
             Start-Sleep -Seconds $IntervalSeconds
