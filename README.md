@@ -10,7 +10,7 @@
 
 前往 [GitHub Releases](https://github.com/shiluodeqiou/PKU-VPN/releases/latest) 下载 Windows x64 单文件版本。发行版是自包含程序，不需要另行安装 .NET Runtime。
 
-当前首个正式版本为 `v1.0.0`。
+当前正式版本为 `v1.0.1`。
 
 ## 快速开始
 
@@ -65,6 +65,7 @@ dotnet publish '.\PKU VPN Manager\PKUVpnManager.csproj' -c Release -r win-x64 `
 项目包含一个 WPF 桌面管理器：
 
 - 一键启动 Clash Verge、Pulse Secure 和共存监视器；
+- 优先读取正在运行的 Clash、Pulse 和 Edge 进程路径，也支持非标准安装目录；
 - Pulse、Clash、Edge 实时状态卡片；
 - 开机自启动与自动进入共存模式共用同一个启动项，并阻止管理器重复运行；
 - 关闭 Edge、恢复普通 Edge；

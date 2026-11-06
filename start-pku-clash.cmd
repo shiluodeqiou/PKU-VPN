@@ -22,22 +22,10 @@ if not defined PULSE if exist "%ProgramFiles%\Common Files\Pulse Secure\JamUI\Pu
 
 echo [PKU-VPN] Starting Clash Verge and the route monitor...
 
-if not defined CLASH (
-    echo [ERROR] Clash Verge was not found.
-    echo [ERROR] Install it in a standard location or set PKU_CLASH_EXE.
-    pause
-    exit /b 1
-)
-
-if not defined PULSE (
-    echo [ERROR] Ivanti Secure Access Client was not found.
-    echo [ERROR] Install it in a standard location or set PKU_PULSE_EXE.
-    pause
-    exit /b 1
-)
-
 tasklist /FI "IMAGENAME eq clash-verge.exe" 2>NUL | find /I "clash-verge.exe" >NUL
 if errorlevel 1 (
+    if not defined CLASH goto missing_clash
+    if not exist "%CLASH%" goto missing_clash
     echo [1/3] Starting Clash Verge...
     start "Clash Verge" "%CLASH%"
 ) else (
@@ -49,6 +37,8 @@ start "PKU-VPN route monitor" "%ROOT%watch-admin.cmd"
 
 tasklist /FI "IMAGENAME eq Pulse.exe" 2>NUL | find /I "Pulse.exe" >NUL
 if errorlevel 1 (
+    if not defined PULSE goto missing_pulse
+    if not exist "%PULSE%" goto missing_pulse
     echo [3/3] Starting Ivanti Secure Access Client...
     start "Ivanti Secure Access Client" "%PULSE%"
 ) else (
@@ -61,3 +51,16 @@ echo [READY] 连接成功后，监视器会保持 Clash 代理并避免重写 Pu
 echo.
 pause
 endlocal
+exit /b 0
+
+:missing_clash
+echo [ERROR] Clash Verge is not running and its executable was not found.
+echo [ERROR] Install it in a standard location or set PKU_CLASH_EXE.
+pause
+exit /b 1
+
+:missing_pulse
+echo [ERROR] Ivanti Secure Access Client is not running and its executable was not found.
+echo [ERROR] Install it in a standard location or set PKU_PULSE_EXE.
+pause
+exit /b 1

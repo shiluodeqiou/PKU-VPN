@@ -2,7 +2,10 @@ using Microsoft.Win32;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Net;
+using System.Net.NetworkInformation;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Threading;
 
@@ -20,17 +23,20 @@ public partial class MainWindow : Window
 
     private string ClashExe => ResolveExecutable(
         "PKU_CLASH_EXE",
+        new[] { "clash-verge" },
         Path.GetFullPath(Path.Combine(_root, "..", "..", "..", "Clash Verge", "clash-verge.exe")),
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Clash Verge", "clash-verge.exe"),
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Clash Verge", "clash-verge.exe"));
 
     private string PulseExe => ResolveExecutable(
         "PKU_PULSE_EXE",
+        new[] { "Pulse" },
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Common Files", "Pulse Secure", "JamUI", "Pulse.exe"),
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Common Files", "Pulse Secure", "JamUI", "Pulse.exe"));
 
     private string EdgeExe => ResolveExecutable(
         "PKU_EDGE_EXE",
+        new[] { "msedge" },
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Microsoft", "Edge", "Application", "msedge.exe"),
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Microsoft", "Edge", "Application", "msedge.exe"));
 
@@ -74,34 +80,61 @@ public partial class MainWindow : Window
         _refreshing = true;
         try
         {
-            var pulseAdapter = await GetPulseAdapterAsync();
-            var pulseRunning = Process.GetProcessesByName("Pulse").Length > 0;
             var clashRunning = IsClashRunning();
+            var clashPort = ReadClashMixedPort();
+            var clashPortListening = IsTcpPortListening(clashPort);
             var proxy = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Internet Settings");
             var proxyEnabled = Convert.ToInt32(proxy?.GetValue("ProxyEnable", 0) ?? 0) == 1;
             var proxyServer = proxy?.GetValue("ProxyServer")?.ToString() ?? "";
+            var autoConfigUrl = proxy?.GetValue("AutoConfigURL")?.ToString() ?? "";
             var edge = Registry.CurrentUser.OpenSubKey(@"Software\Policies\Microsoft\Edge");
             var edgeMode = edge?.GetValue("ProxyMode")?.ToString() ?? "";
             var edgeProxy = edge?.GetValue("ProxyServer")?.ToString() ?? "";
             var ignoreProxy = ReadPulseIgnoreProxy();
 
+            var systemProxyUsesClash = proxyEnabled && IsClashEndpoint(proxyServer, clashPort);
+            var edgeUsesFixedClash = edgeMode == "fixed_servers" && IsClashEndpoint(edgeProxy, clashPort);
+            var edgeUsesSystemClash = edgeMode != "fixed_servers" && systemProxyUsesClash;
+
+            ClashStatusText.Text = clashRunning
+                ? (clashPortListening ? "代理已开启" : "Clash 已运行")
+                : "未运行";
+            ClashStatusText.Foreground = FindResource(clashRunning ? "SuccessBrush" : "DangerBrush") as System.Windows.Media.Brush;
+            ClashDetailText.Text =
+                $"混合端口 127.0.0.1:{clashPort}（{(clashPortListening ? "监听正常" : "未监听")}） · " +
+                $"系统代理{(proxyEnabled ? "已开启" : "已关闭")}";
+
+            if (edgeUsesFixedClash)
+            {
+                EdgeStatusText.Text = "Clash 固定代理";
+                EdgeStatusText.Foreground = FindResource("SuccessBrush") as System.Windows.Media.Brush;
+            }
+            else if (edgeUsesSystemClash)
+            {
+                EdgeStatusText.Text = "系统代理";
+                EdgeStatusText.Foreground = FindResource("SuccessBrush") as System.Windows.Media.Brush;
+            }
+            else if (!string.IsNullOrWhiteSpace(autoConfigUrl))
+            {
+                EdgeStatusText.Text = "PAC 代理";
+                EdgeStatusText.Foreground = FindResource("PrimaryBrush") as System.Windows.Media.Brush;
+            }
+            else
+            {
+                EdgeStatusText.Text = "未使用 Clash";
+                EdgeStatusText.Foreground = FindResource("TextMutedBrush") as System.Windows.Media.Brush;
+            }
+
+            EdgeDetailText.Text = Process.GetProcessesByName("msedge").Length > 0
+                ? "Edge 正在运行"
+                : "Edge 已关闭";
+
+            var pulseAdapter = await GetPulseAdapterAsync();
             PulseStatusText.Text = pulseAdapter is null ? "未连接" : "已连接";
             PulseStatusText.Foreground = FindResource(pulseAdapter is null ? "DangerBrush" : "SuccessBrush") as System.Windows.Media.Brush;
             PulseDetailText.Text = pulseAdapter is null
                 ? "请在 Ivanti 中连接北大 VPN并完成二次验证"
                 : $"{pulseAdapter}  ·  IgnoreEndpointProxy={(ignoreProxy ? "已启用" : "未启用")}";
-
-            ClashStatusText.Text = clashRunning ? "运行中" : "未运行";
-            ClashStatusText.Foreground = FindResource(clashRunning ? "SuccessBrush" : "DangerBrush") as System.Windows.Media.Brush;
-            ClashDetailText.Text = proxyEnabled ? $"系统代理 {proxyServer}" : "系统代理已关闭";
-
-            EdgeStatusText.Text = edgeMode == "fixed_servers" && edgeProxy.Contains("127.0.0.1:7897")
-                ? "Clash 代理"
-                : "系统默认";
-            EdgeStatusText.Foreground = FindResource(edgeMode == "fixed_servers" ? "PrimaryBrush" : "TextMutedBrush") as System.Windows.Media.Brush;
-            EdgeDetailText.Text = Process.GetProcessesByName("msedge").Length > 0
-                ? "Edge 正在运行"
-                : "Edge 已关闭";
 
             ModeText.Text = pulseAdapter is not null && clashRunning ? "Clash + Pulse 共存" : "普通模式 / 未完成连接";
             FooterStatusText.Text = DateTime.Now.ToString("HH:mm:ss");
@@ -142,11 +175,9 @@ public partial class MainWindow : Window
     {
         try
         {
-            if (!File.Exists(ClashExe)) throw new FileNotFoundException("找不到 Clash Verge", ClashExe);
-            if (!File.Exists(PulseExe)) throw new FileNotFoundException("找不到 Ivanti/Pulse", PulseExe);
-
             if (!IsClashRunning())
             {
+                if (!File.Exists(ClashExe)) throw new FileNotFoundException("找不到 Clash Verge", ClashExe);
                 Process.Start(new ProcessStartInfo(ClashExe) { UseShellExecute = true });
                 AppendLog("已启动 Clash Verge");
                 await Task.Delay(1200);
@@ -162,6 +193,7 @@ public partial class MainWindow : Window
 
             if (Process.GetProcessesByName("Pulse").Length == 0)
             {
+                if (!File.Exists(PulseExe)) throw new FileNotFoundException("找不到 Ivanti/Pulse", PulseExe);
                 Process.Start(new ProcessStartInfo(PulseExe) { UseShellExecute = true });
                 AppendLog("已启动 Ivanti Secure Access Client");
             }
@@ -275,11 +307,31 @@ public partial class MainWindow : Window
         Process.GetProcessesByName("clash-verge").Length > 0 ||
         Process.GetProcessesByName("verge-mihomo").Length > 0;
 
-    private static string ResolveExecutable(string environmentVariable, params string[] candidates)
+    private static string ResolveExecutable(string environmentVariable, string[] processNames, params string[] candidates)
     {
         var configured = Environment.GetEnvironmentVariable(environmentVariable);
         if (!string.IsNullOrWhiteSpace(configured) && File.Exists(configured))
             return Path.GetFullPath(configured);
+
+        foreach (var processName in processNames)
+        {
+            foreach (var process in Process.GetProcessesByName(processName))
+            {
+                using (process)
+                {
+                    try
+                    {
+                        var path = process.MainModule?.FileName;
+                        if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+                            return Path.GetFullPath(path);
+                    }
+                    catch
+                    {
+                        // Some elevated processes do not expose MainModule to non-elevated callers.
+                    }
+                }
+            }
+        }
 
         foreach (var candidate in candidates)
         {
@@ -288,6 +340,66 @@ public partial class MainWindow : Window
         }
 
         return !string.IsNullOrWhiteSpace(configured) ? configured : candidates.FirstOrDefault() ?? "";
+    }
+
+    private static int ReadClashMixedPort()
+    {
+        var clashDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "io.github.clash-verge-rev.clash-verge-rev");
+
+        foreach (var fileName in new[] { "config.yaml", "clash-verge.yaml" })
+        {
+            var path = Path.Combine(clashDir, fileName);
+            try
+            {
+                if (!File.Exists(path)) continue;
+                var match = Regex.Match(File.ReadAllText(path), @"(?m)^mixed-port:\s*(\d+)\s*$");
+                if (match.Success && int.TryParse(match.Groups[1].Value, out var port))
+                    return port;
+            }
+            catch
+            {
+            }
+        }
+
+        return 7897;
+    }
+
+    private static bool IsTcpPortListening(int port)
+    {
+        try
+        {
+            return IPGlobalProperties.GetIPGlobalProperties()
+                .GetActiveTcpListeners()
+                .Any(endpoint => endpoint.Port == port &&
+                    (IPAddress.IsLoopback(endpoint.Address) || endpoint.Address.Equals(IPAddress.Any) || endpoint.Address.Equals(IPAddress.IPv6Any)));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsClashEndpoint(string value, int clashPort)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return false;
+
+        foreach (var rawPart in value.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var endpoint = rawPart.Contains('=') ? rawPart[(rawPart.IndexOf('=') + 1)..] : rawPart;
+            if (!endpoint.EndsWith($":{clashPort}", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var host = endpoint[..endpoint.LastIndexOf(':')].Trim('[', ']');
+            if (host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
+                (IPAddress.TryParse(host, out var address) && IPAddress.IsLoopback(address)))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void StartWithWindows_Changed(object sender, RoutedEventArgs e)
